@@ -38,6 +38,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Amazon S3 stores original audio privately.
 - Amazon DynamoDB stores recording metadata, creator profiles, likes, reports, playlists, follows and site settings.
 - AWS Lambda implements the application API.
+- `infrastructure/NoiseGroundApiStack.template.json` records the deployed AWS CloudFormation stack, including the Lambda API source and infrastructure resources.
 - API Gateway HTTP API exposes public catalogue/playback routes and JWT-protected member routes.
 - Amazon Cognito manages email-verified member authentication.
 - Render serves the static web interface from this repository.
