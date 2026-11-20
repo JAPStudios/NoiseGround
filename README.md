@@ -29,6 +29,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Administrator announcements, featured audio and server-enforced upload pause
 - API Gateway default throttling (50 requests per second, burst capacity 100)
 - Private, encrypted audio storage with public bucket access blocked
+- S3 bucket policy denies all non-TLS requests
 - Incomplete multipart-upload cleanup and noncurrent-version expiration
 - 35-day DynamoDB point-in-time recovery on all eight application tables
 
