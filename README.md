@@ -17,6 +17,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Email-verified Cognito member registration and sign-in
 - Creator profiles with display name, biography and website
 - Audio publishing with multipart S3 uploads (up to 2 GB per recording)
+- Podcast series, season and episode metadata
 - Required rights-and-permissions attestation before upload
 - Track ownership checks for deletion
 - Likes
@@ -73,7 +74,7 @@ Administrator-authenticated:
 - Independently verify a real member's email-confirmation and sign-in flow in a browser.
 - Complete browser-level upload, playback, deletion and report tests with a real member account.
 - Add media transcoding and adaptive streaming; current playback serves the uploaded source file directly.
-- Add podcast series and episode metadata, playlists, follows, richer creator discovery and full-text indexing.
+- Add playlists, follows, richer creator discovery and full-text indexing.
 - Add formal service terms, privacy and copyright-agent procedures before broad public operation.
 - Connect a custom domain if one is designated for the service.
 
