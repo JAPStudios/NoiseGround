@@ -8,3 +8,5 @@
 .notice{margin:20px clamp(20px,8vw,120px) 0;padding:16px 20px;border:1px solid var(--accent);color:var(--text);background:#20251b}.admin-settings{max-width:640px;margin:20px 0 34px}
 
 #playlist-list{margin:16px 0 32px}
+
+.catalogue-more{grid-column:1/-1;display:flex;justify-content:center;padding:18px 0}
