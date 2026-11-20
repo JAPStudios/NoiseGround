@@ -50,7 +50,6 @@ Public:
 - `GET /creators/{userId}`
 - `GET /creators/{userId}/followers`
 - `GET /tracks/{trackId}/likes`
-- `GET /playlists/{playlistId}`
 
 Member-authenticated:
 - `GET /playlists/me`
