@@ -21,6 +21,8 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Required rights-and-permissions attestation before upload
 - Track ownership checks for deletion
 - Likes
+- Public and private playlists with track management
+- Creator following and follower counts
 - Recording reports and administrator review actions
 - Administrator announcements, featured audio and server-enforced upload pause
 - Private, encrypted audio storage with public bucket access blocked
@@ -45,9 +47,18 @@ Public:
 - `GET /tracks/{trackId}`
 - `GET /tracks/{trackId}/playback`
 - `GET /creators/{userId}`
+- `GET /creators/{userId}/followers`
 - `GET /tracks/{trackId}/likes`
 
 Member-authenticated:
+- `GET /playlists/{playlistId}`
+- `GET /playlists/me`
+- `POST /playlists`
+- `POST /playlists/{playlistId}/tracks`
+- `DELETE /playlists/{playlistId}/tracks/{trackId}`
+- `DELETE /playlists/{playlistId}`
+- `POST /creators/{userId}/follow`
+- `DELETE /creators/{userId}/follow`
 - `GET /profile`
 - `PUT /profile`
 - `POST /uploads/init`
