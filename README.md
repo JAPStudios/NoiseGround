@@ -41,6 +41,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 
 Public:
 - `GET /health`
+- `GET /playlists/{playlistId}`
 - `GET /site-settings`
 - `GET /featured`
 - `GET /tracks`
@@ -51,8 +52,8 @@ Public:
 - `GET /tracks/{trackId}/likes`
 
 Member-authenticated:
-- `GET /playlists/{playlistId}`
 - `GET /playlists/me`
+- `GET /playlists/me/{playlistId}`
 - `POST /playlists`
 - `POST /playlists/{playlistId}/tracks`
 - `DELETE /playlists/{playlistId}/tracks/{trackId}`
