@@ -1,0 +1,425 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "NoiseGround API and member authentication",
+  "Outputs": {
+    "ApiUrl": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Api",
+          "ApiEndpoint"
+        ]
+      }
+    },
+    "UserPoolClientId": {
+      "Value": {
+        "Ref": "Client"
+      }
+    },
+    "UserPoolId": {
+      "Value": {
+        "Ref": "Pool"
+      }
+    }
+  },
+  "Resources": {
+    "AdminGroup": {
+      "Properties": {
+        "GroupName": "NoiseGroundAdmins",
+        "UserPoolId": {
+          "Ref": "Pool"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolGroup"
+    },
+    "Api": {
+      "Properties": {
+        "CorsConfiguration": {
+          "AllowHeaders": [
+            "authorization",
+            "content-type",
+            "x-amz-date",
+            "x-amz-content-sha256"
+          ],
+          "AllowMethods": [
+            "GET",
+            "POST",
+            "DELETE",
+            "OPTIONS"
+          ],
+          "AllowOrigins": [
+            "https://noise-ground-f45655ed.base44.app"
+          ],
+          "MaxAge": 600
+        },
+        "Name": "NoiseGroundApi",
+        "ProtocolType": "HTTP"
+      },
+      "Type": "AWS::ApiGatewayV2::Api"
+    },
+    "Authorizer": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "AuthorizerType": "JWT",
+        "IdentitySource": [
+          "$request.header.Authorization"
+        ],
+        "JwtConfiguration": {
+          "Audience": [
+            {
+              "Ref": "Client"
+            }
+          ],
+          "Issuer": {
+            "Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${Pool}"
+          }
+        },
+        "Name": "NoiseGroundCognitoJWT"
+      },
+      "Type": "AWS::ApiGatewayV2::Authorizer"
+    },
+    "Client": {
+      "Properties": {
+        "ClientName": "NoiseGroundWeb",
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_SRP_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH"
+        ],
+        "GenerateSecret": false,
+        "PreventUserExistenceErrors": "ENABLED",
+        "UserPoolId": {
+          "Ref": "Pool"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolClient"
+    },
+    "Function": {
+      "Properties": {
+        "Code": {
+          "ZipFile": "import os,json,uuid,math,time,boto3,base64\nfrom urllib.parse import urlparse\nfrom boto3.dynamodb.conditions import Key\ns3=boto3.client('s3'); cognito=boto3.client('cognito-idp'); db=boto3.resource('dynamodb')\ntracks=db.Table(os.environ['TABLE']); profiles=db.Table(os.environ['PROFILES']); likes=db.Table(os.environ['LIKES']); reports=db.Table(os.environ['REPORTS']); settings=db.Table(os.environ['SETTINGS']); playlists=db.Table(os.environ['PLAYLISTS']); playlist_tracks=db.Table(os.environ['PLAYLIST_TRACKS']); follows=db.Table(os.environ['FOLLOWS']); bucket=os.environ['BUCKET']; pool_id=os.environ['USER_POOL']; PART=10*1024*1024\nALLOWED={'audio/mpeg','audio/mp4','audio/aac','audio/wav','audio/x-wav','audio/flac','audio/ogg','audio/webm'}\ndef out(n,x): return {'statusCode':n,'headers':{'content-type':'application/json','access-control-allow-origin':'*'},'body':json.dumps(x)}\ndef body(e):\n try:return json.loads(e.get('body') or '{}')\n except:return {}\ndef claims(e):return e.get('requestContext',{}).get('authorizer',{}).get('jwt',{}).get('claims',{}) or {}\ndef admin(c):\n g=c.get('cognito:groups',[])\n return 'NoiseGroundAdmins' in g if isinstance(g,(str,list)) else False\ndef clean(x):return {k:v for k,v in x.items() if k not in ('s3Key','uploadId','partSize')}\ndef remove_likes(tid):\n q=likes.query(IndexName='TrackLikesIndex',KeyConditionExpression=Key('trackId').eq(tid),ProjectionExpression='userId,trackId')\n while True:\n  for z in q.get('Items',[]):likes.delete_item(Key={'userId':z['userId'],'trackId':z['trackId']})\n  if 'LastEvaluatedKey' not in q:break\n  q=likes.query(IndexName='TrackLikesIndex',KeyConditionExpression=Key('trackId').eq(tid),ProjectionExpression='userId,trackId',ExclusiveStartKey=q['LastEvaluatedKey'])\ndef handler(e,c):\n m=e.get('requestContext',{}).get('http',{}).get('method','GET'); p=e.get('rawPath','/'); params=e.get('pathParameters') or {}; tid=params.get('trackId'); uid=claims(e).get('sub'); cl=claims(e); d=body(e)\n if m=='OPTIONS':return out(204,{})\n if m=='GET' and p=='/health':return out(200,{'status':'ok','service':'NoiseGround API'})\n if m=='GET' and p=='/site-settings':\n  site=settings.get_item(Key={'settingKey':'site'}).get('Item') or {}\n  return out(200,{'uploadsOpen':site.get('uploadsOpen',True),'announcement':site.get('announcement',''),'featuredTrackIds':site.get('featuredTrackIds',[])})\n if m=='GET' and p=='/featured':\n  site=settings.get_item(Key={'settingKey':'site'}).get('Item') or {}; featured=[]\n  for ident in site.get('featuredTrackIds',[])[:20]:\n   x=tracks.get_item(Key={'trackId':ident}).get('Item')\n   if x and x.get('status')=='published':featured.append(clean(x))\n  return out(200,{'items':featured})\n if m=='GET' and p=='/admin/settings':\n  if not uid or not admin(cl):return out(403,{'error':'administrator_required'})\n  site=settings.get_item(Key={'settingKey':'site'}).get('Item') or {'settingKey':'site','uploadsOpen':True,'announcement':'','featuredTrackIds':[]}\n  return out(200,site)\n if m=='PUT' and p=='/admin/settings':\n  if not uid or not admin(cl):return out(403,{'error':'administrator_required'})\n  current=settings.get_item(Key={'settingKey':'site'}).get('Item') or {'settingKey':'site','uploadsOpen':True,'announcement':'','featuredTrackIds':[]}\n  uploads=d.get('uploadsOpen',current.get('uploadsOpen',True)); announcement=str(d.get('announcement',current.get('announcement',''))).strip()\n  featured=d.get('featuredTrackIds',current.get('featuredTrackIds',[]))\n  if not isinstance(uploads,bool) or len(announcement)>1000 or not isinstance(featured,list) or len(featured)>20:return out(400,{'error':'invalid_site_settings'})\n  for ident in featured:\n   x=tracks.get_item(Key={'trackId':str(ident)}).get('Item')\n   if not x or x.get('status')!='published':return out(400,{'error':'featured_recording_not_found','trackId':ident})\n  item={'settingKey':'site','uploadsOpen':uploads,'announcement':announcement,'featuredTrackIds':[str(x) for x in featured],'updatedAt':str(int(time.time()*1000))}\n  settings.put_item(Item=item);return out(200,item)\n if m=='GET' and p=='/tracks':\n  raw=(e.get('queryStringParameters') or {}).get('cursor'); args={'IndexName':'StatusIndex','KeyConditionExpression':Key('status').eq('published'),'ScanIndexForward':False,'Limit':50}\n  if raw:\n   try: args['ExclusiveStartKey']=json.loads(base64.urlsafe_b64decode(raw+'='*(-len(raw)%4)))\n   except Exception:return out(400,{'error':'invalid_catalogue_cursor'})\n  q=tracks.query(**args); cursor=base64.urlsafe_b64encode(json.dumps(q['LastEvaluatedKey']).encode()).decode().rstrip('=') if q.get('LastEvaluatedKey') else None\n  return out(200,{'items':[clean(x) for x in q.get('Items',[])],'nextCursor':cursor})\n if m=='GET' and p=='/playlists/me':\n  if not uid:return out(401,{'error':'authentication_required'})\n  q=playlists.query(IndexName='OwnerIndex',KeyConditionExpression=Key('ownerId').eq(uid),ScanIndexForward=False,Limit=100)\n  return out(200,{'items':q.get('Items',[])})\n if m=='POST' and p=='/playlists':\n  if not uid:return out(401,{'error':'authentication_required'})\n  title=str(d.get('title','')).strip(); description=str(d.get('description','')).strip(); public=d.get('isPublic',True)\n  if not title or len(title)>120 or len(description)>1000 or not isinstance(public,bool):return out(400,{'error':'invalid_playlist_details'})\n  ident=str(uuid.uuid4()); item={'playlistId':ident,'ownerId':uid,'title':title,'description':description,'isPublic':public,'createdAt':str(int(time.time()*1000))}\n  playlists.put_item(Item=item);return out(201,item)\n if m=='GET' and p.startswith('/playlists/me/'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  ident=params.get('playlistId');pl=playlists.get_item(Key={'playlistId':ident}).get('Item')\n  if not pl:return out(404,{'error':'playlist_not_found'})\n  if pl.get('ownerId')!=uid:return out(403,{'error':'playlist_owner_required'})\n  q=playlist_tracks.query(KeyConditionExpression=Key('playlistId').eq(ident),Limit=200);items=[]\n  for row in q.get('Items',[]):\n   x=tracks.get_item(Key={'trackId':row['trackId']}).get('Item')\n   if x and x.get('status')=='published':items.append(clean(x))\n  pl['tracks']=items;return out(200,pl)\n if m=='GET' and p.startswith('/playlists/'):\n  ident=params.get('playlistId')\n  if not ident:return out(400,{'error':'playlist_id_required'})\n  pl=playlists.get_item(Key={'playlistId':ident}).get('Item')\n  if not pl:return out(404,{'error':'playlist_not_found'})\n  if not pl.get('isPublic',True) and pl.get('ownerId')!=uid:return out(403,{'error':'private_playlist'})\n  q=playlist_tracks.query(KeyConditionExpression=Key('playlistId').eq(ident),Limit=200)\n  items=[]\n  for row in q.get('Items',[]):\n   x=tracks.get_item(Key={'trackId':row['trackId']}).get('Item')\n   if x and x.get('status')=='published':items.append(clean(x))\n  pl['tracks']=items;return out(200,pl)\n if m=='DELETE' and p.startswith('/playlists/') and '/tracks/' not in p:\n  if not uid:return out(401,{'error':'authentication_required'})\n  ident=params.get('playlistId');pl=playlists.get_item(Key={'playlistId':ident}).get('Item')\n  if not pl:return out(404,{'error':'playlist_not_found'})\n  if pl.get('ownerId')!=uid:return out(403,{'error':'playlist_owner_required'})\n  q=playlist_tracks.query(KeyConditionExpression=Key('playlistId').eq(ident))\n  for row in q.get('Items',[]):playlist_tracks.delete_item(Key={'playlistId':ident,'trackId':row['trackId']})\n  playlists.delete_item(Key={'playlistId':ident});return out(200,{'deleted':True})\n if m=='POST' and p.endswith('/tracks') and p.startswith('/playlists/'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  ident=params.get('playlistId'); pl=playlists.get_item(Key={'playlistId':ident}).get('Item')\n  if not pl:return out(404,{'error':'playlist_not_found'})\n  if pl.get('ownerId')!=uid:return out(403,{'error':'playlist_owner_required'})\n  track_id=str(d.get('trackId','')); x=tracks.get_item(Key={'trackId':track_id}).get('Item')\n  if not x or x.get('status')!='published':return out(404,{'error':'track_not_found'})\n  playlist_tracks.put_item(Item={'playlistId':ident,'trackId':track_id,'addedAt':str(int(time.time()*1000))})\n  return out(200,{'playlistId':ident,'trackId':track_id,'added':True})\n if m=='DELETE' and p.startswith('/playlists/') and '/tracks/' in p:\n  if not uid:return out(401,{'error':'authentication_required'})\n  ident=params.get('playlistId'); track_id=params.get('trackId'); pl=playlists.get_item(Key={'playlistId':ident}).get('Item')\n  if not pl:return out(404,{'error':'playlist_not_found'})\n  if pl.get('ownerId')!=uid:return out(403,{'error':'playlist_owner_required'})\n  playlist_tracks.delete_item(Key={'playlistId':ident,'trackId':track_id});return out(200,{'removed':True})\n if m=='GET' and p.endswith('/following') and p.startswith('/creators/'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  creator=params.get('userId');return out(200,{'following':bool(follows.get_item(Key={'userId':uid,'creatorId':creator}).get('Item'))})\n if m=='GET' and p.endswith('/followers') and p.startswith('/creators/'):\n  creator=params.get('userId')\n  q=follows.query(IndexName='CreatorFollowersIndex',KeyConditionExpression=Key('creatorId').eq(creator),Select='COUNT')\n  return out(200,{'creatorId':creator,'followers':q.get('Count',0)})\n if m=='POST' and p.endswith('/follow') and p.startswith('/creators/'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  creator=params.get('userId')\n  if creator==uid:return out(400,{'error':'cannot_follow_self'})\n  follows.put_item(Item={'userId':uid,'creatorId':creator,'createdAt':str(int(time.time()*1000))})\n  q=follows.query(IndexName='CreatorFollowersIndex',KeyConditionExpression=Key('creatorId').eq(creator),Select='COUNT')\n  return out(200,{'following':True,'followers':q.get('Count',0)})\n if m=='DELETE' and p.endswith('/follow') and p.startswith('/creators/'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  creator=params.get('userId');follows.delete_item(Key={'userId':uid,'creatorId':creator})\n  q=follows.query(IndexName='CreatorFollowersIndex',KeyConditionExpression=Key('creatorId').eq(creator),Select='COUNT')\n  return out(200,{'following':False,'followers':q.get('Count',0)})\n if m=='GET' and p.startswith('/creators/'):\n  creator=params.get('userId')\n  if not creator:return out(400,{'error':'creator_id_required'})\n  profile=profiles.get_item(Key={'userId':creator}).get('Item') or {'userId':creator,'displayName':'Independent creator','bio':''}\n  q=tracks.query(IndexName='ArtistIndex',KeyConditionExpression=Key('artistId').eq(creator),ScanIndexForward=False,Limit=50)\n  profile['tracks']=[clean(x) for x in q.get('Items',[]) if x.get('status')=='published'];return out(200,profile)\n if m=='GET' and p=='/profile':\n  if not uid:return out(401,{'error':'authentication_required'})\n  return out(200,profiles.get_item(Key={'userId':uid}).get('Item') or {'userId':uid,'displayName':cl.get('email','Creator'),'bio':''})\n if m=='PUT' and p=='/profile':\n  if not uid:return out(401,{'error':'authentication_required'})\n  name=str(d.get('displayName','')).strip(); bio=str(d.get('bio','')).strip(); website=str(d.get('website','')).strip()\n  if not name or len(name)>100:return out(400,{'error':'display_name_required'})\n  if len(bio)>1000 or len(website)>250:return out(400,{'error':'profile_field_too_long'})\n  if website:\n   parsed=urlparse(website)\n   if parsed.scheme not in ('https','http') or not parsed.netloc or parsed.username or parsed.password:return out(400,{'error':'website_must_be_http_or_https'})\n  item={'userId':uid,'displayName':name,'bio':bio,'website':website,'updatedAt':str(int(time.time()*1000))};profiles.put_item(Item=item);return out(200,item)\n if m=='GET' and tid and p.endswith('/likes/status'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  return out(200,{'liked':bool(likes.get_item(Key={'userId':uid,'trackId':tid}).get('Item'))})\n if m=='GET' and tid and p.endswith('/likes'):\n  q=likes.query(IndexName='TrackLikesIndex',KeyConditionExpression=Key('trackId').eq(tid),Select='COUNT'); liked=bool(likes.get_item(Key={'userId':uid,'trackId':tid}).get('Item')) if uid else False\n  return out(200,{'count':q.get('Count',0),'liked':liked})\n if m=='POST' and tid and p.endswith('/likes'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  x=tracks.get_item(Key={'trackId':tid}).get('Item')\n  if not x or x.get('status')!='published':return out(404,{'error':'track_not_found'})\n  likes.put_item(Item={'userId':uid,'trackId':tid,'createdAt':str(int(time.time()*1000))});q=likes.query(IndexName='TrackLikesIndex',KeyConditionExpression=Key('trackId').eq(tid),Select='COUNT')\n  return out(200,{'liked':True,'count':q.get('Count',0)})\n if m=='DELETE' and tid and p.endswith('/likes'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  likes.delete_item(Key={'userId':uid,'trackId':tid});q=likes.query(IndexName='TrackLikesIndex',KeyConditionExpression=Key('trackId').eq(tid),Select='COUNT')\n  return out(200,{'liked':False,'count':q.get('Count',0)})\n if m=='POST' and tid and p.endswith('/reports'):\n  if not uid:return out(401,{'error':'authentication_required'})\n  x=tracks.get_item(Key={'trackId':tid}).get('Item')\n  if not x or x.get('status')!='published':return out(404,{'error':'track_not_found'})\n  if x.get('artistId')==uid:return out(400,{'error':'cannot_report_own_recording'})\n  reason=str(d.get('reason','')).strip()\n  if reason not in {'Copyright','Harassment','Hate or abuse','Privacy','Other'}:return out(400,{'error':'select_valid_reason'})\n  rid=str(uuid.uuid4());reports.put_item(Item={'reportId':rid,'trackId':tid,'reporterId':uid,'reason':reason,'details':str(d.get('details',''))[:1000],'status':'open','createdAt':str(int(time.time()*1000))})\n  return out(201,{'reportId':rid,'status':'open'})\n if m=='GET' and p=='/admin/members':\n  if not uid or not admin(cl):return out(403,{'error':'administrator_required'})\n  result=cognito.list_users(UserPoolId=pool_id,Limit=60); users=[]\n  for u in result.get('Users',[]):\n   attrs={a.get('Name'):a.get('Value') for a in u.get('Attributes',[])}\n   groups=cognito.admin_list_groups_for_user(UserPoolId=pool_id,Username=u['Username']).get('Groups',[])\n   users.append({'username':u.get('Username'),'email':attrs.get('email',''),'status':u.get('UserStatus'),'enabled':u.get('Enabled',False),'role':'admin' if any(g.get('GroupName')=='NoiseGroundAdmins' for g in groups) else 'member'})\n  return out(200,{'items':users})\n if m=='PUT' and '/admin/members/' in p and p.endswith('/role'):\n  if not uid or not admin(cl):return out(403,{'error':'administrator_required'})\n  username=params.get('username'); role=d.get('role')\n  if not username or role not in {'admin','member'}:return out(400,{'error':'valid_username_and_role_required'})\n  if role=='admin':cognito.admin_add_user_to_group(UserPoolId=pool_id,Username=username,GroupName='NoiseGroundAdmins')\n  else:cognito.admin_remove_user_from_group(UserPoolId=pool_id,Username=username,GroupName='NoiseGroundAdmins')\n  return out(200,{'username':username,'role':role})\n if m=='GET' and p=='/admin/reports':\n  if not uid or not admin(cl):return out(403,{'error':'administrator_required'})\n  q=reports.scan(Limit=100);return out(200,{'items':q.get('Items',[])})\n if m=='POST' and p.endswith('/resolve') and '/admin/reports/' in p:\n  if not uid or not admin(cl):return out(403,{'error':'administrator_required'})\n  rid=params.get('reportId'); r=reports.get_item(Key={'reportId':rid}).get('Item')\n  if not r:return out(404,{'error':'report_not_found'})\n  action=d.get('action')\n  if action not in {'dismiss','take_down'}:return out(400,{'error':'select_dismiss_or_take_down'})\n  if action=='take_down':\n   x=tracks.get_item(Key={'trackId':r['trackId']}).get('Item')\n   if x:\n    if x.get('s3Key'):s3.delete_object(Bucket=bucket,Key=x['s3Key'])\n    remove_likes(r['trackId'])\n    tracks.delete_item(Key={'trackId':r['trackId']})\n  reports.update_item(Key={'reportId':rid},UpdateExpression='SET #s=:s, #a=:a, resolvedAt=:t',ExpressionAttributeNames={'#s':'status','#a':'resolution'},ExpressionAttributeValues={':s':'resolved',':a':action,':t':str(int(time.time()*1000))})\n  return out(200,{'reportId':rid,'status':'resolved','resolution':action})\n if m=='GET' and tid and p.endswith('/playback'):\n  x=tracks.get_item(Key={'trackId':tid}).get('Item')\n  if not x or x.get('status')!='published':return out(404,{'error':'track_not_found'})\n  return out(200,{'url':s3.generate_presigned_url('get_object',Params={'Bucket':bucket,'Key':x['s3Key']},ExpiresIn=900),'expiresIn':900})\n if m=='GET' and tid:\n  x=tracks.get_item(Key={'trackId':tid}).get('Item')\n  if not x or x.get('status')!='published':return out(404,{'error':'track_not_found'})\n  return out(200,clean(x))\n if m=='POST' and p=='/uploads/init':\n  if not uid:return out(401,{'error':'authentication_required'})\n  site=settings.get_item(Key={'settingKey':'site'}).get('Item') or {}\n  if site.get('uploadsOpen') is False:return out(503,{'error':'uploads_paused'})\n  if d.get('rightsConfirmed') is not True:return out(400,{'error':'rights_confirmation_required'})\n  title=str(d.get('title','')).strip(); ct=str(d.get('contentType','')).lower()\n  try:size=int(d.get('sizeBytes',0))\n  except:size=0\n  if not title or len(title)>160:return out(400,{'error':'valid_title_required'})\n  if ct not in ALLOWED:return out(415,{'error':'unsupported_audio_type'})\n  if size<1 or size>2*1024**3:return out(413,{'error':'maximum_2_gb'})\n  ident=str(uuid.uuid4());key='audio/'+uid+'/'+ident;created=str(int(time.time()*1000));up=s3.create_multipart_upload(Bucket=bucket,Key=key,ContentType=ct,Metadata={'trackid':ident,'owner':uid})\n  tracks.put_item(Item={'trackId':ident,'artistId':uid,'artistName':str(d.get('artistName','')).strip()[:100],'title':title,'description':str(d.get('description',''))[:3000],'category':str(d.get('category','Music'))[:50],'seriesTitle':str(d.get('seriesTitle','')).strip()[:160],'seasonNumber':str(d.get('seasonNumber','')).strip()[:10],'episodeNumber':str(d.get('episodeNumber','')).strip()[:10],'contentType':ct,'sizeBytes':size,'createdAt':created,'status':'uploading','s3Key':key,'uploadId':up['UploadId'],'partSize':PART})\n  if not profiles.get_item(Key={'userId':uid}).get('Item'):profiles.put_item(Item={'userId':uid,'displayName':str(d.get('artistName','')).strip()[:100] or cl.get('email','Creator'),'bio':'','createdAt':created})\n  return out(201,{'trackId':ident,'partSize':PART,'partCount':math.ceil(size/PART)})\n if m=='POST' and p=='/uploads/part-url':\n  if not uid:return out(401,{'error':'authentication_required'})\n  x=tracks.get_item(Key={'trackId':str(d.get('trackId',''))}).get('Item')\n  try:n=int(d.get('partNumber',0))\n  except:n=0\n  if not x or x.get('artistId')!=uid or x.get('status')!='uploading':return out(404,{'error':'upload_not_found'})\n  if n<1 or n>math.ceil(int(x['sizeBytes'])/int(x['partSize'])):return out(400,{'error':'invalid_part'})\n  u=s3.generate_presigned_url('upload_part',Params={'Bucket':bucket,'Key':x['s3Key'],'UploadId':x['uploadId'],'PartNumber':n},ExpiresIn=900);return out(200,{'url':u,'expiresIn':900})\n if m=='POST' and p=='/uploads/complete':\n  if not uid:return out(401,{'error':'authentication_required'})\n  x=tracks.get_item(Key={'trackId':str(d.get('trackId',''))}).get('Item');parts=d.get('parts',[])\n  if not x or x.get('artistId')!=uid or x.get('status')!='uploading':return out(404,{'error':'upload_not_found'})\n  if not isinstance(parts,list) or not parts:return out(400,{'error':'parts_required'})\n  normalized=sorted([{'PartNumber':int(z['PartNumber']),'ETag':str(z['ETag'])} for z in parts],key=lambda z:z['PartNumber'])\n  s3.complete_multipart_upload(Bucket=bucket,Key=x['s3Key'],UploadId=x['uploadId'],MultipartUpload={'Parts':normalized})\n  head=s3.head_object(Bucket=bucket,Key=x['s3Key'])\n  if head.get('ContentLength')!=int(x['sizeBytes']):\n   s3.delete_object(Bucket=bucket,Key=x['s3Key']);tracks.delete_item(Key={'trackId':x['trackId']});return out(400,{'error':'uploaded_size_mismatch'})\n  tracks.update_item(Key={'trackId':x['trackId']},UpdateExpression='SET #s=:p REMOVE uploadId,partSize',ExpressionAttributeNames={'#s':'status'},ExpressionAttributeValues={':p':'published'})\n  return out(200,{'trackId':x['trackId'],'status':'published'})\n if m=='DELETE' and tid:\n  if not uid:return out(401,{'error':'authentication_required'})\n  x=tracks.get_item(Key={'trackId':tid}).get('Item')\n  if not x:return out(404,{'error':'track_not_found'})\n  if x.get('artistId')!=uid and not admin(cl):return out(403,{'error':'forbidden'})\n  if x.get('s3Key'):s3.delete_object(Bucket=bucket,Key=x['s3Key'])\n  remove_likes(tid)\n  tracks.delete_item(Key={'trackId':tid});return out(200,{'deleted':True})\n return out(404,{'error':'not_found'})\n"
+        },
+        "Environment": {
+          "Variables": {
+            "BUCKET": "noiseground-audio-634226582347-us-east-1",
+            "LIKES": "NoiseGroundLikes",
+            "PROFILES": "NoiseGroundProfiles",
+            "REPORTS": "NoiseGroundReports",
+            "TABLE": "NoiseGroundTracks"
+          }
+        },
+        "FunctionName": "NoiseGroundApi",
+        "Handler": "index.handler",
+        "MemorySize": 256,
+        "Role": {
+          "Fn::GetAtt": [
+            "Role",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.12",
+        "Timeout": 30
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "Integration": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "IntegrationType": "AWS_PROXY",
+        "IntegrationUri": {
+          "Fn::GetAtt": [
+            "Function",
+            "Arn"
+          ]
+        },
+        "PayloadFormatVersion": "2.0"
+      },
+      "Type": "AWS::ApiGatewayV2::Integration"
+    },
+    "Permission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "Function"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*"
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "Pool": {
+      "Properties": {
+        "AutoVerifiedAttributes": [
+          "email"
+        ],
+        "DeletionProtection": "ACTIVE",
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 12,
+            "RequireLowercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": false,
+            "RequireUppercase": true
+          }
+        },
+        "UserPoolName": "NoiseGroundMembers",
+        "UsernameAttributes": [
+          "email"
+        ]
+      },
+      "Type": "AWS::Cognito::UserPool"
+    },
+    "Role": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:logs:us-east-1:634226582347:*"
+                },
+                {
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:DeleteObject",
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:s3:::noiseground-audio-634226582347-us-east-1/*"
+                },
+                {
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": [
+                    "arn:aws:dynamodb:us-east-1:634226582347:table/NoiseGroundTracks",
+                    "arn:aws:dynamodb:us-east-1:634226582347:table/NoiseGroundTracks/index/*"
+                  ]
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "NoiseGroundApiAccess"
+          }
+        ],
+        "RoleName": "NoiseGroundApiExecutionRole"
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "Route1": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "RouteKey": "GET /health",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route2": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "RouteKey": "GET /tracks",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route3": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "RouteKey": "GET /tracks/{trackId}",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route4": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "RouteKey": "GET /tracks/{trackId}/playback",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route5": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "AuthorizationType": "JWT",
+        "AuthorizerId": {
+          "Ref": "Authorizer"
+        },
+        "RouteKey": "POST /uploads/init",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route6": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "AuthorizationType": "JWT",
+        "AuthorizerId": {
+          "Ref": "Authorizer"
+        },
+        "RouteKey": "POST /uploads/part-url",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route7": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "AuthorizationType": "JWT",
+        "AuthorizerId": {
+          "Ref": "Authorizer"
+        },
+        "RouteKey": "POST /uploads/complete",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Route8": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "AuthorizationType": "JWT",
+        "AuthorizerId": {
+          "Ref": "Authorizer"
+        },
+        "RouteKey": "DELETE /tracks/{trackId}",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "Integration"
+              }
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Route"
+    },
+    "Stage": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "Api"
+        },
+        "AutoDeploy": true,
+        "StageName": "$default"
+      },
+      "Type": "AWS::ApiGatewayV2::Stage"
+    }
+  }
+}
