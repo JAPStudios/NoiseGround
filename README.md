@@ -22,6 +22,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Track ownership checks for deletion
 - Likes
 - Recording reports and administrator review actions
+- Administrator announcements, featured audio and server-enforced upload pause
 - Private, encrypted audio storage with public bucket access blocked
 - Incomplete multipart-upload cleanup and noncurrent-version expiration
 
@@ -38,6 +39,8 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 
 Public:
 - `GET /health`
+- `GET /site-settings`
+- `GET /featured`
 - `GET /tracks`
 - `GET /tracks/{trackId}`
 - `GET /tracks/{trackId}/playback`
@@ -56,7 +59,7 @@ Member-authenticated:
 - `POST /tracks/{trackId}/reports`
 
 Administrator-authenticated:
-- `GET /admin/reports`
+- `GET /admin/settings`\n- `PUT /admin/settings`\n- `GET /admin/reports`
 - `POST /admin/reports/{reportId}/resolve`
 
 ## Operational notes
