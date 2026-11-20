@@ -12,7 +12,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 
 ## Implemented
 
-- Public catalogue with text search and category filters
+- Public catalogue with cursor-based pagination, text search and category filters
 - Browser audio playback using short-lived signed S3 URLs
 - Email-verified Cognito member registration and sign-in
 - Creator profiles with display name, biography and website
