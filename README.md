@@ -16,6 +16,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Browser audio playback using short-lived signed S3 URLs
 - Email-verified Cognito member registration and sign-in
 - Creator profiles with display name, biography and website
+- Server-side creator website URL validation (HTTP/HTTPS only; embedded credentials rejected)
 - Audio publishing with multipart S3 uploads (up to 2 GB per recording)
 - Podcast series, season and episode metadata
 - Required rights-and-permissions attestation before upload
@@ -25,6 +26,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Creator following and follower counts
 - Recording reports and administrator review actions
 - Administrator announcements, featured audio and server-enforced upload pause
+- API Gateway default throttling (50 requests per second, burst capacity 100)
 - Private, encrypted audio storage with public bucket access blocked
 - Incomplete multipart-upload cleanup and noncurrent-version expiration
 
@@ -87,16 +89,19 @@ Administrator-authenticated:
 - Incomplete multipart uploads are aborted after seven days.
 - Noncurrent audio object versions expire after 30 days.
 - Lambda logs are retained for 14 days.
-- The initial catalogue is empty until members publish recordings.
+- Point-in-time recovery is enabled for the recordings table for 35 days.
+- The initial catalogue is empty until creators publish recordings.
+- No member account is pre-provisioned or assumed by the infrastructure.
 
 ## Remaining production work
 
-- Assign the initial administrator account after its member registration is completed.
-- Independently verify a real member's email-confirmation and sign-in flow in a browser.
-- Complete browser-level upload, playback, deletion and report tests with a real member account.
+- Configure a secure, one-time administrator bootstrap procedure; do not automatically promote the first registrant.
+- Complete browser-level tests of email confirmation, sign-in, publishing, playback, deletion and reporting. These tests must use a consenting test participant; no account is created as part of infrastructure deployment.
 - Add media transcoding and adaptive streaming; current playback serves the uploaded source file directly.
-- Add richer creator discovery and full-text indexing.
-- Add formal service terms, privacy and copyright-agent procedures before broad public operation.
+- Add richer creator discovery and full-text indexing beyond the currently loaded catalogue pages.
+- Implement member privacy controls and account/data deletion.
+- Complete production security review, including upload validation/scanning, abuse controls and monitoring.
+- Publish accurate service terms, privacy and copyright procedures before broad public operation.
 - Connect a custom domain if one is designated for the service.
 
-The service is deployed, but these remaining items mean the production launch is not yet complete.
+The current deployment contains working application components, but these remaining items mean the production launch is not yet complete.
