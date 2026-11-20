@@ -59,7 +59,11 @@ Member-authenticated:
 - `POST /tracks/{trackId}/reports`
 
 Administrator-authenticated:
-- `GET /admin/settings`\n- `PUT /admin/settings`\n- `GET /admin/reports`
+- `GET /admin/settings`
+- `PUT /admin/settings`
+- `GET /admin/members`
+- `PUT /admin/members/{username}/role`
+- `GET /admin/reports`
 - `POST /admin/reports/{reportId}/resolve`
 
 ## Operational notes
