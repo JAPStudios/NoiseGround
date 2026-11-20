@@ -29,6 +29,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - API Gateway default throttling (50 requests per second, burst capacity 100)
 - Private, encrypted audio storage with public bucket access blocked
 - Incomplete multipart-upload cleanup and noncurrent-version expiration
+- 35-day DynamoDB point-in-time recovery on all eight application tables
 
 ## Architecture
 
@@ -89,7 +90,7 @@ Administrator-authenticated:
 - Incomplete multipart uploads are aborted after seven days.
 - Noncurrent audio object versions expire after 30 days.
 - Lambda logs are retained for 14 days.
-- Point-in-time recovery is enabled for the recordings table for 35 days.
+- Point-in-time recovery is enabled for all eight application tables with a 35-day recovery window.
 - The initial catalogue is empty until creators publish recordings.
 - No member account is pre-provisioned or assumed by the infrastructure.
 
