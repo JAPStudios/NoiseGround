@@ -50,10 +50,13 @@ Public:
 - `GET /creators/{userId}`
 - `GET /creators/{userId}/followers`
 - `GET /tracks/{trackId}/likes`
+- `GET /playlists/{playlistId}`
 
 Member-authenticated:
 - `GET /playlists/me`
 - `GET /playlists/me/{playlistId}`
+- `GET /tracks/{trackId}/likes/status`
+- `GET /creators/{userId}/following`
 - `POST /playlists`
 - `POST /playlists/{playlistId}/tracks`
 - `DELETE /playlists/{playlistId}/tracks/{trackId}`
