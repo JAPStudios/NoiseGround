@@ -4,3 +4,5 @@
 .rights-check{display:flex!important;grid-template-columns:auto 1fr;align-items:flex-start;gap:10px;line-height:1.45}.rights-check input{width:auto;flex:0 0 auto;margin-top:4px}.rights-check{color:var(--muted);font-size:12px}
 
 .episode-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}#podcast-fields[hidden]{display:none}
+
+.notice{margin:20px clamp(20px,8vw,120px) 0;padding:16px 20px;border:1px solid var(--accent);color:var(--text);background:#20251b}.admin-settings{max-width:640px;margin:20px 0 34px}
