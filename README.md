@@ -21,7 +21,7 @@ NoiseGround is a free, public audio-sharing service for songs, music and podcast
 - Required rights-and-permissions attestation before upload
 - Track ownership checks for deletion
 - Likes
-- Public and private playlists with track management
+- Public and private playlists with track management and shareable public playlist pages
 - Creator following and follower counts
 - Recording reports and administrator review actions
 - Administrator announcements, featured audio and server-enforced upload pause
